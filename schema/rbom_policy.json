@@ -1,0 +1,14 @@
+{
+  "version": "2025-10-01",
+  "required_fields": ["rbom_version", "generated_at", "files"],
+  "forbid_unknown_top_fields": false,
+  "files_constraints": {
+    "name_pattern": "^[A-Za-z0-9._-]+$",
+    "sha256_len": 64
+  },
+  "require_files": [
+    "VEL_MANIFEST.json",
+    "artifact.tar.gz"
+  ],
+  "notes": "RBOM must list release payloads; names are filename-only, alnum+.-_"
+}

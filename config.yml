@@ -1,0 +1,13 @@
+paths:
+  artifact: "field/timeline/latest.json"
+  manifest: "VEL_MANIFEST.json"
+  signature: "field/timeline/latest.json.sig"
+  certificate: "field/timeline/latest.json.pem"
+  schema: "schema/vel_manifest.schema.json"
+  tarball_base: "out/artifact.tar"
+  font: "assets/fonts/DejaVuSans.ttf"
+  golden_test_hash: "gold/affect.png.sha256"
+
+constants:
+  license_id: "MIT"
+  python_version: "3.11.9"

@@ -1,0 +1,38 @@
+name: Nightly Prerelease
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+permissions: {}  # Policy: Explicit default-deny
+
+jobs:
+  prerelease:
+    runs-on: ubuntu-22.04
+    permissions:        # Policy: Explicit per-job minimal permissions (+ actions: write for upload)
+      contents: read
+      id-token: write
+      actions: write # Needed for actions/upload-artifact
+    steps:
+      - name: Checkout (pinned)
+        uses: actions/checkout@b4ffde65f46336ab88eb5aea80dec20058b14633
+        with: { fetch-depth: 0 }
+      - name: Setup Python (pinned)
+        uses: actions/setup-python@f268f5c87ff633b4999f939e653d3c26b52c0288
+        with: { python-version: '3.11.9', cache: 'pip', cache-dependency-path: 'requirements.lock' }
+      - name: Enforce env / umask
+        run: bash scripts/enforce_env.sh
+      - name: Portable CI (strict)
+        run: bash scripts/run_ci.sh --strict
+      - name: Version stamp
+        run: python -I tools/version_stamp.py
+      - name: Upload prerelease bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prerelease-${{ github.run_id }}
+          path: |
+            field/timeline/latest.json
+            VEL_MANIFEST.json
+            version.json

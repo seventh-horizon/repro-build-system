@@ -1,0 +1,59 @@
+name: Pull Request Repro Audit (Lite)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  pr-audit:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout (pinned)
+        uses: actions/checkout@b4ffde65f46336ab88eb5aea80dec20058b14633
+        with: { fetch-depth: 0 }
+      - name: Setup Python (pinned)
+        uses: actions/setup-python@f268f5c87ff633b4999f939e653d3c26b52c0288
+        with: { python-version: '3.11.9' }
+      - name: Enforce env
+        run: ./scripts/enforce_env.sh
+      - name: Permissions lint (gating)
+        run: python -I tools/permissions_lint.py
+      - name: Pins manifest drift (gating)
+        run: python -I tools/pins_manifest_check.py
+      - name: Verify pinned actions
+        run: python -I scripts/verify_pins.py --pins ACTIONS-PINS.md --out pins_report.json
+      - name: Build + Verify (lite)
+        run: |
+          python -I tools/make_snapshot.py
+          python -I tools/make_vel_manifest.py
+          python -I tools/vel_validator.py --artifact field/timeline/latest.json --schema schema/vel_manifest.schema.json VEL_MANIFEST.json
+      - name: Evidence matrix (advisory)
+        run: make evidence || true
+      - name: CI Summary (advisory)
+        run: make summary || true
+      - name: Version stamp (advisory)
+        run: make version || true
+      - name: Secret lint (advisory)
+        run: python -I tools/secret_lint.py || true
+      - name: Upload PR artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr-audit-artifacts
+          path: |
+            pins_report.json
+            permissions_report.json
+            pins_manifest_report.json
+            quickcheck_report.txt
+            env_snapshot.json
+            json_check_report.json
+            evidence_index.json
+            EVIDENCE_MATRIX.md
+            CI_SUMMARY.md
+            version.json
+            secret_scan.json

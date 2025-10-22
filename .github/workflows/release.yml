@@ -1,0 +1,123 @@
+name: Release Tag
+on:
+  push: { tags: [ "v*" ] }
+  workflow_dispatch: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions: {}  # Policy: Explicit default-deny
+
+jobs:
+  build:
+    permissions: # Policy: Explicit permissions needed to call reusable workflow (includes actions:write for artifact upload)
+      contents: read
+      id-token: write
+      actions: write # CRITICAL: Delegated permission for actions/upload-artifact inside build-seal-validate.yml
+    uses: ./.github/workflows/build-seal-validate.yml
+    with:
+      ref: ${{ github.ref }}
+      run_id: ${{ github.run_id }}
+
+  attest:
+    needs: build
+    permissions: # Policy: Explicit per-job permissions needed for SLSA
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.9.0
+    with:
+      base64-subjects: "${{ needs.build.outputs.subjects }}"
+
+  publish:
+    needs: [build, attest]
+    runs-on: ubuntu-22.04
+    permissions: # Policy: Explicit per-job minimal permissions needed to publish release assets (contents: write, actions: read)
+      contents: write
+      actions: read # Needed for actions/download-artifact
+    steps:
+      - name: Download Sealed Artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release_assets/
+      - name: Create Release (pinned)
+        uses: softprops/action-gh-release@aec2ec56f94eb8180ceec724245f64ef008b89f5
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: release_assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  rbom:
+    needs: publish
+    runs-on: ubuntu-22.04
+    permissions: # Policy: Explicit per-job minimal permissions needed to upload RBOM (contents: write, actions: read)
+      contents: write
+      actions: read # Needed for actions/download-artifact
+    steps:
+      - name: Checkout (pinned)
+        uses: actions/checkout@b4ffde65f46336ab88eb5aea80dec20058b14633
+        with: { fetch-depth: 0 }
+      - name: Download Sealed Artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release_assets/
+      - name: Build RBOM
+        run: |
+          python -I tools/make_rbom.py --inputs "release_assets/*" --out "release_assets/release_bom.json"
+      - name: Guard RBOM names (no traversal)
+        run: |
+          python -I tools/safe_paths_check.py
+      - name: Check RBOM against policy
+        run: |
+          python -I tools/rbom_check.py \
+            --policy schema/rbom_policy.json \
+            --rbom release_assets/release_bom.json \
+            --out release_assets/rbom_check.json
+      - name: Sign RBOM with Cosign (if available)
+        run: |
+          if command -v cosign >/dev/null 2>&1; then
+            cosign sign-blob release_assets/release_bom.json \
+              --output-signature release_assets/release_bom.json.sig \
+              --tlog-upload=false
+          else
+            echo "Cosign not present; skipping RBOM signature."
+          fi
+      - name: Upload RBOM to Release
+        uses: softprops/action-gh-release@aec2ec56f94eb8180ceec724245f64ef008b89f5
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            release_assets/release_bom.json
+            release_assets/release_bom.json.sig
+            release_assets/rbom_check.json
+            safe_paths_report.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish_evidence:
+    needs: [publish]
+    runs-on: ubuntu-22.04
+    permissions: # Policy: Explicit per-job minimal permissions needed to read evidence
+      contents: read
+      actions: read # Needed for actions/download-artifact
+    steps:
+      - name: Download Sealed Artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release_assets/
+      - name: Post Evidence to Registry
+        if: ${{ secrets.REGISTRY_URL != '' && secrets.REGISTRY_API_KEY != '' }}
+        run: |
+          jq -n \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg tag "${GITHUB_REF_NAME}" \
+            --slurpfile manifest release_assets/VEL_MANIFEST.json \
+            '{repo:$repo, run_id:$run_id, tag:$tag, manifest:$manifest[0]}' > evidence.json
+          curl -sSf -X POST "${{ secrets.REGISTRY_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.REGISTRY_API_KEY }}" \
+            --data-binary @evidence.json

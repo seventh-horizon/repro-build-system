@@ -1,0 +1,201 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 6 AM UTC
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov pytest-xdist
+          # Install any additional test dependencies
+          if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
+      
+      - name: Run tests
+        run: |
+          pytest tests/ \
+            --cov=tools \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-report=html \
+            -n auto \
+            --tb=short \
+            --strict-markers
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-${{ matrix.python-version }}
+          fail_ci_if_error: false
+      
+      - name: Archive coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: htmlcov/
+          retention-days: 30
+      
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(root.attrib['line-rate'])")
+          COVERAGE_PCT=$(python -c "print(float($COVERAGE) * 100)")
+          echo "Coverage: ${COVERAGE_PCT}%"
+          if (( $(echo "$COVERAGE_PCT < 75.0" | bc -l) )); then
+            echo "❌ Coverage ${COVERAGE_PCT}% is below threshold of 75%"
+            exit 1
+          fi
+          echo "✅ Coverage ${COVERAGE_PCT}% meets threshold"
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-xdist
+      
+      - name: Run integration tests
+        run: |
+          pytest tests/ \
+            -m integration \
+            -v \
+            --tb=short
+      
+      - name: Run end-to-end workflow
+        run: |
+          bash init.sh
+          make build
+          make verify
+          make tar
+          make compliance
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install security tools
+        run: |
+          pip install bandit safety
+      
+      - name: Run Bandit security scan
+        run: |
+          bandit -r tools/ -f json -o bandit-report.json
+          bandit -r tools/ -f txt
+        continue-on-error: true
+      
+      - name: Run Safety check
+        run: |
+          safety check --json > safety-report.json || true
+          safety check
+        continue-on-error: true
+      
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+          retention-days: 30
+
+  lint:
+    name: Lint and Style Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install linting tools
+        run: |
+          pip install black flake8 mypy pylint
+      
+      - name: Check code formatting with Black
+        run: |
+          black --check --diff tools/ tests/
+        continue-on-error: true
+      
+      - name: Run Flake8
+        run: |
+          flake8 tools/ tests/ --max-line-length=120 --extend-ignore=E203,W503
+        continue-on-error: true
+      
+      - name: Run Pylint
+        run: |
+          pylint tools/ --disable=C0111,C0103 --max-line-length=120
+        continue-on-error: true
+      
+      - name: Type check with mypy
+        run: |
+          mypy tools/ --ignore-missing-imports
+        continue-on-error: true
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test, integration-tests, security-scan, lint]
+    if: always()
+    
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Test Suite Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Unit Tests: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Integration Tests: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Security Scan: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Lint Check: ${{ needs.lint.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Build: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

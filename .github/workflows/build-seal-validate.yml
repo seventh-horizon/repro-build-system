@@ -1,0 +1,70 @@
+name: Reusable Build, Seal, Validate
+on:
+  workflow_call:
+    inputs:
+      ref: { required: true, type: string }
+      run_id: { required: true, type: string }
+    outputs:
+      artifact_name:
+        value: ${{ jobs.build.outputs.artifact_name }}
+      subjects:
+        value: ${{ jobs.build.outputs.subjects }}
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact_name: ${{ env.ARTIFACT_NAME }}
+      subjects: ${{ steps.hash.outputs.subjects }}
+    env:
+      ARTIFACT_NAME: sealed-assets-${{ inputs.run_id }}
+      LC_ALL: C
+      TZ: UTC
+      PYTHONHASHSEED: "0"
+      GZIP: "-n"
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb5aea80dec20058b14633
+        with: { ref: ${{ inputs.ref }}, fetch-depth: 0 }
+      - uses: actions/setup-python@f268f5c87ff633b4999f939e653d3c26b52c0288
+        with: { python-version: '3.11.9' }
+      - uses: sigstore/cosign-installer@d70402b8d002a2fdc4f420e1762e84d166c4335c
+      - run: ./scripts/enforce_env.sh
+      - run: python -I scripts/verify_pins.py --pins ACTIONS-PINS.md --out pins_report.json
+      - run: bash scripts/run_ci.sh
+      - name: Create tar + verify gzip header
+        run: |
+          make tar
+          python -I tools/verify_gzip_header.py --gz out/artifact.tar.gz --out gzip_check.json
+      - name: Evidence + Summary + Version
+        run: |
+          make evidence
+          make summary
+          make version
+      - name: Emit subjects
+        id: hash
+        run: |
+          python -I scripts/verify_pins.py --pins ACTIONS-PINS.md --out pins_report.json
+          echo "subjects=$(python - <<'PY'
+import json,hashlib,sys,pathlib
+p1=pathlib.Path('field/timeline/latest.json'); p2=pathlib.Path('VEL_MANIFEST.json')
+import base64
+s=[{'name':p1.name,'digest':{'sha256':hashlib.sha256(p1.read_bytes()).hexdigest()}},{'name':p2.name,'digest':{'sha256':hashlib.sha256(p2.read_bytes()).hexdigest()}}]
+print(base64.b64encode(json.dumps(s).encode()).decode())
+PY
+)" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            out/artifact.tar.gz
+            field/timeline/latest.json
+            VEL_MANIFEST.json
+            pins_report.json
+            gzip_check.json
+            evidence_index.json
+            EVIDENCE_MATRIX.md
+            CI_SUMMARY.md
+            version.json
