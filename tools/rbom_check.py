@@ -9,6 +9,20 @@ def check_schema_version(version: str, allowed: Iterable[str] = ("1.0", "1.1")) 
     """Return True if schema version string is allowed."""
     return str(version) in set(map(str, allowed))
 
+def check_artifact_count(doc: Dict[str, Any]) -> int:
+    """
+    Return the number of artifacts in the RBOM document.
+
+    Tests expect this helper to take the whole RBOM dict and return an int.
+    If the "artifacts" key is missing or not a list, return 0.
+    """
+    artifacts = doc.get("artifacts", [])
+    try:
+        return len(artifacts)
+    except TypeError:
+        # Non-list artifacts field
+        return 0
+
 def _required_artifact_fields_ok(art: Dict[str, Any]) -> List[str]:
     errs: List[str] = []
     for f in ("name", "path", "size", "sha256"):
