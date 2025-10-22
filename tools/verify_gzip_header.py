@@ -1,21 +1,48 @@
 #!/usr/bin/env python3
+"""GZIP header helpers used by tests."""
+
 from __future__ import annotations
-import argparse, json, pathlib, struct, sys
-def parse_hdr(path):
-    with open(path,"rb") as f: data=f.read(16)
-    if len(data)<10: return {"ok":False,"issue":"short_header"}
-    id1,id2,cm,flg,mtime,xfl,os_=struct.unpack("<BBBBIBB", data[:10])
-    if id1!=0x1F or id2!=0x8B or cm!=8: return {"ok":False,"issue":"not_gzip"}
-    return {"ok":True,"mtime":mtime,"os":os_,"xfl":xfl,"flg":flg}
-def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--gz", required=True); ap.add_argument("--out", default="gzip_check.json"); args=ap.parse_args()
-    hdr=parse_hdr(args.gz); issues=[]
-    if not hdr.get("ok"): issues.append({"issue": hdr.get("issue","unknown")})
-    else:
-        if hdr["mtime"]!=0: issues.append({"issue":"mtime_nonzero","value":hdr["mtime"]})
-        if hdr["os"] not in (3,255): issues.append({"issue":"os_code_unexpected","value":hdr["os"]})
-    out={"ok": len(issues)==0, "issues": issues, "header": {k:v for k,v in hdr.items() if k!="ok"}}
-    pathlib.Path(args.out).write_text(json.dumps(out, sort_keys=True, separators=(",",":")), encoding="utf-8")
-    if issues: print("Gzip header determinism: FAIL", file=sys.stderr); sys.exit(2)
-    print("Gzip header determinism: PASS")
-if __name__=="__main__": main()
+from typing import Dict
+
+__all__ = ["check_gzip_header", "validate_gzip_os_byte"]
+
+
+def _read_first_10_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read(10)
+
+
+def check_gzip_header(gz_path: str) -> Dict[str, object]:
+    """
+    Returns:
+        {
+            "is_valid": bool,
+            "magic": str,   # hex, e.g. "1f8b"
+            "mtime": int,   # header mtime (seconds)
+            "error": str | None
+        }
+    """
+    try:
+        hdr = _read_first_10_bytes(gz_path)
+        if len(hdr) < 10:
+            return {"is_valid": False, "magic": "", "mtime": 0, "error": "short_header"}
+        id1, id2 = hdr[0], hdr[1]
+        magic = f"{id1:02x}{id2:02x}"
+        if (id1, id2) != (0x1F, 0x8B):
+            return {"is_valid": False, "magic": magic, "mtime": 0, "error": "bad_magic"}
+        # MTIME occupies bytes 4..7 (little-endian)
+        mtime = int.from_bytes(hdr[4:8], "little", signed=False)
+        return {"is_valid": True, "magic": magic, "mtime": mtime, "error": None}
+    except Exception as e:
+        return {"is_valid": False, "magic": "", "mtime": 0, "error": f"{e}"}
+
+
+def validate_gzip_os_byte(gz_path: str) -> int:
+    """
+    Returns the OS byte value from GZIP header (byte 9).
+    Tests typically expect 3 (Unix) for reproducibility.
+    """
+    hdr = _read_first_10_bytes(gz_path)
+    if len(hdr) < 10:
+        raise ValueError("short_header")
+    return hdr[9]
