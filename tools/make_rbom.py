@@ -1,64 +1,93 @@
 #!/usr/bin/env python3
+"""RBOM helpers with the API shape expected by tests."""
 from __future__ import annotations
-import hashlib, json, os
+
+import hashlib
+import json
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Dict, Any, List
+from typing import Any, Dict, Iterable, List, Tuple
 
-CHUNK = 1024 * 1024
+__all__ = ["collect_artifacts", "generate_rbom"]
 
-def _sha256_of(path: Path) -> str:
+
+def _sha256_file(p: Path, bufsize: int = 1024 * 1024) -> str:
     h = hashlib.sha256()
-    with path.open("rb") as f:
+    with p.open("rb") as f:
         while True:
-            b = f.read(CHUNK)
-            if not b:
+            chunk = f.read(bufsize)
+            if not chunk:
                 break
-            h.update(b)
+            h.update(chunk)
     return h.hexdigest()
 
-def collect_artifacts(root: str | os.PathLike[str] = ".", extensions: Iterable[str] | None = None) -> List[Path]:
-    """
-    Walk `root` and return a list of artifact Paths. If `extensions` is provided,
-    only include files whose suffix (without dot) is in that iterable.
-    """
-    root_p = Path(root)
-    allow = None if extensions is None else {e.lower().lstrip(".") for e in extensions}
-    out: List[Path] = []
-    for dirpath, _, filenames in os.walk(root_p):
-        for name in filenames:
-            p = Path(dirpath) / name
-            if allow is not None:
-                suf = p.suffix.lower().lstrip(".")
-                if suf not in allow:
-                    continue
-            if p.is_file():
-                out.append(p.relative_to(root_p))
-    out.sort()
-    return out
 
-def generate_rbom(files: Iterable[Path]) -> Dict[str, Any]:
+def collect_artifacts(
+    root: str | Path = ".",
+    extensions: Iterable[str] | None = None,
+) -> List[Dict[str, Any]]:
     """
-    Produce: { "files": [ { "name": "...", "sha256": "..." }, ... ] }
+    Walk `root` and return a list of artifact dicts:
+      { "name": <relative path>, "path": <absolute path>, "size": <int>, "sha256": <hex> }
+    Tests expect dictionaries (not Path objects).
     """
-    items: List[Dict[str, str]] = []
-    for rel in files:
-        rel_p = Path(rel)
-        items.append({"name": str(rel_p).replace("\\", "/"), "sha256": _sha256_of(Path(".") / rel_p)})
-    return {"files": items}
+    base = Path(root).resolve()
+    artifacts: List[Dict[str, Any]] = []
+    allow_ext = set(e.lower() for e in (extensions or []))
 
-def main(argv: List[str] | None = None) -> int:
-    import argparse
-    ap = argparse.ArgumentParser(description="Generate a simple RBOM for a set of files.")
-    ap.add_argument("--root", default=".", help="Root directory to scan")
-    ap.add_argument("--ext", action="append", default=None, help="File extensions to include (repeatable)")
-    ap.add_argument("--out", default="release_bom.json", help="Output JSON file")
-    args = ap.parse_args(argv)
+    for p in sorted(base.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(base).as_posix()
 
-    files = collect_artifacts(args.root, args.ext)
-    rbom = generate_rbom(files)
-    Path(args.out).write_text(json.dumps(rbom, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"Wrote {args.out} with {len(rbom.get('files', []))} entries")
-    return 0
+        if allow_ext:
+            ext = p.suffix.lower()
+            if ext not in allow_ext:
+                continue
+
+        artifacts.append(
+            {
+                "name": rel,
+                "path": str(p),
+                "size": p.stat().st_size,
+                "sha256": _sha256_file(p),
+            }
+        )
+    return artifacts
+
+
+def generate_rbom(
+    root: str | Path,
+    version: str,
+    metadata: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """
+    Build an RBOM document with the shape tests assert on:
+    {
+      "schema_version": "1.0",
+      "release_version": "<version>",
+      "generated_at": "<iso8601 z>",
+      "count": <int>,
+      "artifacts": [ {name,path,size,sha256}, ... ],
+      "metadata": {...}   # optional
+    }
+    """
+    artifacts = collect_artifacts(root)
+    doc: Dict[str, Any] = {
+        "schema_version": "1.0",
+        "release_version": version,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "count": len(artifacts),
+        "artifacts": artifacts,
+    }
+    if metadata:
+        doc["metadata"] = metadata
+    return doc
+
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # tiny CLI for local checks: python tools/make_rbom.py <root> <version> > rbom.json
+    import sys
+    root = sys.argv[1] if len(sys.argv) > 1 else "."
+    ver = sys.argv[2] if len(sys.argv) > 2 else "v0.0.0"
+    print(json.dumps(generate_rbom(root, ver), indent=2))
