@@ -16,7 +16,7 @@ def main():
         for e in files:
             name=(e or {}).get("name","")
             if not name: issues.append({"issue":"empty_name"}); continue
-            if name.startswith("/") or ".." in name or "/" in name or "\" in name:
+            if name.startswith("/") or ".." in name or "/" in name or "\\" in name:
                 issues.append({"issue":"path_traversal","name":name})
             if name.startswith(".git") or name.startswith(".github"):
                 issues.append({"issue":"control_dir","name":name})
