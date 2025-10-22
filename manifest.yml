@@ -1,0 +1,8 @@
+version: 0.1.0
+repo: seventh-horizon/repro-build-system
+tag: v0.1.0
+commit: aa8674670a2daeb1c0d4f30a5a71e17cf94ef40e
+date: 2025-10-22T03:48:02Z
+artifact_checks:
+  - file: requirements.lock
+    sha256: f33465931d88e1c618b3bcf2ae8197d520311795c33d49ca6a268023c1e93c97
