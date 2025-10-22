@@ -1,0 +1,14 @@
+[run]
+include =
+    tools/cjson.py
+    tools/det_tar.py
+    tools/io_utils.py
+    tools/safe_paths_check.py
+    tools/vel_validator.py
+    tools/verify_tar_determinism.py
+    tools/permissions_lint.py
+    tools/rbom_check.py
+
+[report]
+fail_under = 75
+precision = 2
