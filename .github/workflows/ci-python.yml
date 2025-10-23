@@ -1,4 +1,5 @@
 name: Python CI
+
 on:
   push:
   pull_request:
@@ -11,28 +12,40 @@ jobs:
   py:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.dev.txt', '**/requirements*.txt') }}
           restore-keys: ${{ runner.os }}-pip-
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+          if [ -f requirements.dev.txt ]; then pip install -r requirements.dev.txt; fi
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov pre-commit pyyaml jsonschema
+          # Fallback if no files present (keeps CI working)
+          pip install pytest pytest-cov || true
+          # Tools some tests may need:
+          pip install pre-commit pyyaml jsonschema || true
 
       - name: Pre-commit (auto-fix)
+        if: ${{ hashFiles('.pre-commit-config.yaml') != '' }}
         uses: pre-commit/action@v3.0.1
 
       - name: Auto-commit pre-commit fixes
+        if: github.event_name == 'push' && !contains(github.event.head_commit.message, 'ci: auto-apply pre-commit fixes')
         run: |
           if ! git diff --quiet; then
             git config user.name  "seventh-horizon-bot"
@@ -42,8 +55,11 @@ jobs:
             git push || true
           fi
 
-      - name: Tests
-        run: pytest -q
+      - name: Tests (with coverage gate)
+        run: |
+          pytest -q --maxfail=1 --disable-warnings \
+            --cov=tools --cov-report=term-missing:skip-covered --cov-report=xml \
+            --cov-fail-under=50
 
       - name: Upload coverage + reports
         if: always()
@@ -56,18 +72,44 @@ jobs:
           if-no-files-found: ignore
 
       - name: Summarize failure with next steps
-        if: failure()
+        if: failure() && github.event_name == 'push'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          python - <<'PY'
-import os, json, urllib.request
-prompt = "Python CI failed. In <=120 words, say likely cause + exact pytest/ruff/black commands to reproduce locally."
-req=urllib.request.Request("https://api.openai.com/v1/chat/completions",
-  headers={"Authorization":"Bearer "+os.environ["OPENAI_API_KEY"],"Content-Type":"application/json"})
-body={"model":"gpt-4o-mini","messages":[{"role":"user","content":prompt}],"max_tokens":200}
-resp=json.loads(urllib.request.urlopen(req,data=json.dumps(body).encode()).read())
-open("_analysis.md","w").write(resp["choices"][0]["message"]["content"])
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "No OPENAI_API_KEY available; skipping AI summary." > _analysis.md
+          else
+            cat > _ai_summary.py <<'PY'
+import os, json, urllib.request, socket
+prompt = (
+    "Python CI failed. In <=120 words, say likely cause and "
+    "the exact pytest/ruff/black commands to reproduce locally."
+)
+req = urllib.request.Request(
+    "https://api.openai.com/v1/chat/completions",
+    headers={
+        "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+        "Content-Type": "application/json",
+    },
+)
+body = {
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": prompt}],
+    "max_tokens": 200,
+}
+try:
+    resp = urllib.request.urlopen(req, data=json.dumps(body).encode(), timeout=15)
+    data = json.loads(resp.read())
+    text = data["choices"][0]["message"]["content"]
+except Exception as e:
+    text = f"AI summary failed: {e}"
+open("_analysis.md", "w").write(text)
 PY
-          gh issue create --title "Python CI failed on ${{ github.ref_name }}" --body "$(cat _analysis.md)" --label "ci-fail" || true
+            python _ai_summary.py
+          fi
+
+          gh issue create \
+            --title "Python CI failed on ${{ github.ref_name }}" \
+            --body "$(cat _analysis.md)" \
+            --label "ci-fail" || true
