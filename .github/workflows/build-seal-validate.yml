@@ -9,7 +9,8 @@ on:
         value: ${{ jobs.build.outputs.artifact_name }}
       subjects:
         value: ${{ jobs.build.outputs.subjects }}
-permissions: {}
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-22.04
