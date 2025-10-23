@@ -26,6 +26,11 @@ wheels/
 htmlcov/
 coverage.xml
 .tox/
+safe_paths_report.json
+pins_report.json
+rbom_check.json
+tar_check.json
+json_check_report.json
 
 # IDE
 .vscode/

@@ -7,7 +7,7 @@ import tarfile
 from pathlib import Path
 from typing import Iterable
 
-__all__ = ["normalize_tar_info", "create_deterministic_tar"]
+__all__ = ["normalize_tar_info", "create_deterministic_tar", "build_tar"]
 
 
 def normalize_tar_info(ti: tarfile.TarInfo) -> tarfile.TarInfo:
@@ -80,3 +80,27 @@ def create_deterministic_tar(source_dir: str, tar_path: str) -> None:
                 ti = normalize_tar_info(ti)
                 with open(full, "rb") as f:
                     tf.addfile(ti, fileobj=f)
+
+
+def build_tar(output_path: str, input_files: list[str]) -> None:
+    """
+    Build a deterministic tar from a list of input files.
+    Expected by tests.
+    """
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Sort files by basename for deterministic order
+    files = sorted(input_files, key=lambda x: Path(x).name)
+    
+    with tarfile.open(out, mode="w") as tf:
+        for fpath in files:
+            p = Path(fpath)
+            if not p.exists():
+                continue
+            # Use basename as arcname
+            arcname = p.name
+            ti = tf.gettarinfo(name=str(p), arcname=arcname)
+            ti = normalize_tar_info(ti)
+            with open(p, "rb") as f:
+                tf.addfile(ti, fileobj=f)

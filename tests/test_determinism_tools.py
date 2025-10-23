@@ -304,8 +304,8 @@ class TestDeterminismIntegration:
         source_dir = tmp_path / "source"
         source_dir.mkdir()
         (source_dir / "README.md").write_text("# Project")
-        (source_dir / "src" / "main.py").write_text("print('hello')")
         (source_dir / "src").mkdir(parents=True, exist_ok=True)
+        (source_dir / "src" / "main.py").write_text("print('hello')")
         
         # Create deterministic tar
         tar_path = tmp_path / "release.tar"
@@ -318,7 +318,7 @@ class TestDeterminismIntegration:
         # Compress with deterministic gzip
         gz_path = tmp_path / "release.tar.gz"
         with open(tar_path, "rb") as f_in:
-            with gzip.open(gz_path, "wb", mtime=0) as f_out:
+            with gzip.GzipFile(str(gz_path), "wb", mtime=0) as f_out:
                 f_out.write(f_in.read())
         
         # Validate gzip header
