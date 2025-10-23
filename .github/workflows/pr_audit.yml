@@ -15,10 +15,10 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout (pinned)
-        uses: actions/checkout@b4ffde65f46336ab88eb5aea80dec20058b14633
+        uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: Setup Python (pinned)
-        uses: actions/setup-python@f268f5c87ff633b4999f939e653d3c26b52c0288
+        uses: actions/setup-python@v5
         with: { python-version: '3.11.9' }
       - name: Enforce env
         run: ./scripts/enforce_env.sh
@@ -42,7 +42,7 @@ jobs:
       - name: Secret lint (advisory)
         run: python -I tools/secret_lint.py || true
       - name: Upload PR artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: pr-audit-artifacts
           path: |
