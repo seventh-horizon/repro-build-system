@@ -69,47 +69,50 @@ def verify_metadata(member: tarfile.TarInfo) -> bool:
     perms_ok = (mode & 0o002) == 0  # Not world-writable
     return uid_ok and gid_ok and uname_ok and gname_ok and mtime_ok and perms_ok
 
-def check_tar_determinism(tar_path: str) -> bool:
-    """High-level boolean wrapper expected by tests."""
+def check_tar_determinism(tar_path: str) -> dict:
+    """
+    Check if tar is deterministic and return dict with detailed results.
+    Expected by tests to return a dict with 'is_deterministic' key.
+    """
     p = pathlib.Path(tar_path)
     if not p.exists():
-        return False
+        return {"is_deterministic": False, "issues": ["Tar file does not exist"]}
+    
     try:
         with tarfile.open(str(p), "r:*") as tf:
-            members = tf.getmembers()
-    except Exception:
-        return False
-    return verify_file_order(members) and all(verify_metadata(m) for m in members)
+            members = [m for m in tf.getmembers() if m.name != "./"]
+    except Exception as e:
+        return {"is_deterministic": False, "issues": [f"Failed to read tar: {e}"]}
+    
+    issues = []
+    
+    # Check file order
+    if not verify_file_order(members):
+        issues.append("Files are not in sorted order")
+    
+    # Check metadata for each member
+    for m in members:
+        if not verify_metadata(m):
+            if m.uid != 0:
+                issues.append(f"{m.name}: uid is {m.uid}, not 0")
+            if m.gid != 0:
+                issues.append(f"{m.name}: gid is {m.gid}, not 0")
+            uname = getattr(m, "uname", "") or "root"
+            gname = getattr(m, "gname", "") or "root"
+            if uname != "root":
+                issues.append(f"{m.name}: uname is '{uname}', not 'root'")
+            if gname != "root":
+                issues.append(f"{m.name}: gname is '{gname}', not 'root'")
+            if m.mtime != 0:
+                issues.append(f"{m.name}: mtime is {m.mtime}, not 0")
+            mode = getattr(m, "mode", 0)
+            if (mode & 0o002) != 0:
+                issues.append(f"{m.name}: mode has world-writable bit set")
+    
+    return {
+        "is_deterministic": len(issues) == 0,
+        "issues": issues
+    }
 
 if __name__ == "__main__":
     main()
-
-# --- Determinism helpers required by tests ---
-
-from tarfile import TarInfo
-from typing import Iterable
-
-def verify_file_order(members: Iterable[TarInfo]) -> bool:
-    """True if member names are strictly increasing and unique."""
-    names = [m.name for m in members]
-    return names == sorted(set(names))
-
-def verify_metadata(member: TarInfo) -> bool:
-    """Enforce deterministic metadata for each member."""
-    uid_ok = getattr(member, "uid", 0) == 0
-    gid_ok = getattr(member, "gid", 0) == 0
-    uname = getattr(member, "uname", "") or "root"
-    gname = getattr(member, "gname", "") or "root"
-    ug_ok = (uname == "root") and (gname == "root")
-    mode = getattr(member, "mode", 0)
-    perms_ok = (mode & 0o002) == 0
-    mtime_ok = getattr(member, "mtime", 0) == 0
-    return uid_ok and gid_ok and ug_ok and perms_ok and mtime_ok
-
-def check_tar_determinism(tar_path: str) -> bool:
-    import tarfile
-    with tarfile.open(tar_path, "r:*") as tf:
-        members = [m for m in tf.getmembers() if m.name != "./"]
-        return verify_file_order(members) and all(verify_metadata(m) for m in members)
-
-__all__ = ["verify_file_order", "verify_metadata", "check_tar_determinism"]
