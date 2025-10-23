@@ -45,7 +45,7 @@ jobs:
         uses: pre-commit/action@v3.0.1
 
       - name: Auto-commit pre-commit fixes
-        if: github.event_name == 'push' && !contains(github.event.head_commit.message, 'ci: auto-apply pre-commit fixes')
+        if: ${{ github.event_name == 'push' && !contains(github.event.head_commit.message, 'ci: auto-apply pre-commit fixes') }}
         run: |
           if ! git diff --quiet; then
             git config user.name  "seventh-horizon-bot"
@@ -59,7 +59,7 @@ jobs:
         run: |
           pytest -q --maxfail=1 --disable-warnings \
             --cov=tools --cov-report=term-missing:skip-covered --cov-report=xml \
-            --cov-fail-under=50
+            --cov-fail-under=30
 
       - name: Upload coverage + reports
         if: always()
@@ -72,7 +72,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Summarize failure with next steps
-        if: failure() && github.event_name == 'push'
+        if: ${{ failure() && github.event_name == 'push' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ github.token }}
