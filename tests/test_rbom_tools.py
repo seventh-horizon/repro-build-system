@@ -94,9 +94,11 @@ class TestRBOMCheck:
         rbom = {
             "schema_version": "1.0",
             "release_version": "v1.0.0",
+            "count": 1,
             "artifacts": [
                 {
                     "name": "artifact.tar.gz",
+                    "path": "/path/to/artifact.tar.gz",
                     "sha256": "a" * 64,
                     "size": 1024
                 }
@@ -157,9 +159,11 @@ class TestRBOMCheck:
         rbom = {
             "schema_version": "1.0",
             "release_version": "v1.0.0",
+            "count": 1,
             "artifacts": [
                 {
                     "name": "artifact.tar.gz",
+                    "path": "/path/to/artifact.tar.gz",
                     "size": 1024
                     # Missing sha256
                 }
@@ -175,9 +179,11 @@ class TestRBOMCheck:
         rbom = {
             "schema_version": "1.0",
             "release_version": "v1.0.0",
+            "count": 1,
             "artifacts": [
                 {
                     "name": "artifact.tar.gz",
+                    "path": "/path/to/artifact.tar.gz",
                     "sha256": "invalid_hash",
                     "size": 1024
                 }

@@ -5,23 +5,28 @@ from typing import Iterable, Tuple, List, Dict, Any
 import argparse, json, pathlib, sys, re
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 
-def check_schema_version(version: str, allowed: Iterable[str] = ("1.0", "1.1")) -> bool:
+def check_schema_version(version: str, allowed: Iterable[str] = ("1.0", "1.1", "2.0")) -> bool:
     """Return True if schema version string is allowed."""
     return str(version) in set(map(str, allowed))
 
-def check_artifact_count(doc: Dict[str, Any]) -> int:
+def check_artifact_count(doc: Dict[str, Any], max_count: int | None = None) -> int | bool:
     """
-    Return the number of artifacts in the RBOM document.
+    Return the number of artifacts in the RBOM document, or check against a limit.
 
-    Tests expect this helper to take the whole RBOM dict and return an int.
-    If the "artifacts" key is missing or not a list, return 0.
+    If max_count is provided, return True if artifact count <= max_count, else False.
+    If max_count is None, return the count as an int.
+    If the "artifacts" key is missing or not a list, count is 0.
     """
     artifacts = doc.get("artifacts", [])
     try:
-        return len(artifacts)
+        count = len(artifacts)
     except TypeError:
         # Non-list artifacts field
-        return 0
+        count = 0
+    
+    if max_count is not None:
+        return count <= max_count
+    return count
 
 def _required_artifact_fields_ok(art: Dict[str, Any]) -> List[str]:
     errs: List[str] = []
@@ -48,6 +53,8 @@ def validate_rbom(doc: Dict[str, Any]) -> Tuple[bool, List[str]]:
         errors.append("schema_version_mismatch")
 
     # artifacts/count
+    if "artifacts" not in doc:
+        errors.append("missing_artifacts")
     artifacts = doc.get("artifacts", [])
     if not isinstance(artifacts, list):
         errors.append("artifacts_not_list")
