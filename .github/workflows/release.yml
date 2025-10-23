@@ -36,12 +36,12 @@ jobs:
       actions: read # Needed for actions/download-artifact
     steps:
       - name: Download Sealed Artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs.artifact_name }}
           path: release_assets/
       - name: Create Release (pinned)
-        uses: softprops/action-gh-release@aec2ec56f94eb8180ceec724245f64ef008b89f5
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: release_assets/*
@@ -56,10 +56,10 @@ jobs:
       actions: read # Needed for actions/download-artifact
     steps:
       - name: Checkout (pinned)
-        uses: actions/checkout@b4ffde65f46336ab88eb5aea80dec20058b14633
+        uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: Download Sealed Artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs.artifact_name }}
           path: release_assets/
@@ -85,7 +85,7 @@ jobs:
             echo "Cosign not present; skipping RBOM signature."
           fi
       - name: Upload RBOM to Release
-        uses: softprops/action-gh-release@aec2ec56f94eb8180ceec724245f64ef008b89f5
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: |
@@ -104,7 +104,7 @@ jobs:
       actions: read # Needed for actions/download-artifact
     steps:
       - name: Download Sealed Artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs.artifact_name }}
           path: release_assets/
