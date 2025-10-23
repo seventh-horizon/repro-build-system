@@ -97,8 +97,17 @@ def check_tar_determinism(tar_path: str) -> dict:
                 issues.append(f"{m.name}: uid is {m.uid}, not 0")
             if m.gid != 0:
                 issues.append(f"{m.name}: gid is {m.gid}, not 0")
+            uname = getattr(m, "uname", "") or "root"
+            gname = getattr(m, "gname", "") or "root"
+            if uname != "root":
+                issues.append(f"{m.name}: uname is '{uname}', not 'root'")
+            if gname != "root":
+                issues.append(f"{m.name}: gname is '{gname}', not 'root'")
             if m.mtime != 0:
                 issues.append(f"{m.name}: mtime is {m.mtime}, not 0")
+            mode = getattr(m, "mode", 0)
+            if (mode & 0o002) != 0:
+                issues.append(f"{m.name}: mode has world-writable bit set")
     
     return {
         "is_deterministic": len(issues) == 0,

@@ -68,7 +68,7 @@ def check_file_permissions(filepath):
     mode = st.st_mode
     
     return {
-        "mode": oct(stat.S_IMODE(mode))[2:],  # Remove '0o' prefix
+        "mode": f"{stat.S_IMODE(mode):03o}",  # Format as 3-digit octal
         "is_executable": bool(mode & stat.S_IXUSR),
         "is_world_readable": bool(mode & stat.S_IROTH),
         "is_world_writable": bool(mode & stat.S_IWOTH)
